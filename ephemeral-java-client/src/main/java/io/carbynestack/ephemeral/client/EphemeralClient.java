@@ -72,6 +72,9 @@ public class EphemeralClient {
    */
   public Either<ActivationError, ActivationResult> execute(@NonNull Activation activation)
       throws CsHttpClientException {
+      System.out.println("Starting Ephemeral execution at endpoint: " + endpoint.getServiceUri());
+      System.out.println("Using activation config: " + activation.getOutput());
+      System.out.println("Using gameId: " + activation.getCode());
     CsResponseEntity<String, ActivationResult> responseEntity =
         csHttpClient.postForEntity(
             endpoint.getActivationUri(
@@ -79,6 +82,7 @@ public class EphemeralClient {
             bearerToken.map(BearerTokenUtils::createBearerToken).collect(Collectors.toList()),
             activation,
             ActivationResult.class);
+    System.out.println("responseEntity: " + responseEntity.getContent());
     return responseEntity
         .getContent()
         .mapLeft(

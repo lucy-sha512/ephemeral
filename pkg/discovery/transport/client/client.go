@@ -99,7 +99,7 @@ func (c *Client) GetOut() chan *pb.Event {
 
 // Connect dials the server and returns a connection.
 func (c *Client) Connect() (*grpc.ClientConn, error) {
-	ctx, cancelConnect := context.WithTimeout(context.Background(), c.conf.ConnectTimeout)
+	ctx, cancelConnect := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancelConnect()
 	conn, err := grpc.DialContext(ctx, c.conf.Host+":"+c.conf.Port, grpc.WithBlock(), grpc.WithInsecure())
 	if err != nil {

@@ -60,6 +60,7 @@ type TransportServer struct {
 	conf       *TransportConfig
 	grpcServer *grpc.Server
 	mb         mb.MessageBus
+	cancel     context.CancelFunc
 }
 
 // GetIn returns the input channel of the transport.
@@ -74,25 +75,33 @@ func (d *TransportServer) GetOut() chan *pb.Event {
 
 // Run starts the transport server.
 func (d *TransportServer) Run(cb func()) error {
-	lis, err := net.Listen("tcp", ":"+d.conf.Port)
-	if err != nil {
-		return err
-	}
-	d.conf.Logger.Debugf("Started TransportServer listening on %s", lis.Addr())
-	pb.RegisterDiscoveryServer(d.grpcServer, d)
-	done := make(chan struct{}, 1)
-	go d.broadcast(done)
-	cb()
-	d.serve(lis, done)
-	return nil
+    lis, err := net.Listen("tcp", ":"+d.conf.Port)
+    if err != nil {
+        return err
+    }
+    d.conf.Logger.Debugf("Started TransportServer listening on %s", lis.Addr())
+    pb.RegisterDiscoveryServer(d.grpcServer, d)
+
+    ctx, cancel := context.WithCancel(context.Background())
+    d.cancel = cancel
+
+    go d.broadcast(ctx) // 🔹 context-aware broadcast
+
+    cb()
+
+    // serve blocks until Stop() cancels
+    return d.grpcServer.Serve(lis)
 }
+
 
 // Stop stops the transport server.
 func (d *TransportServer) Stop() {
-	d.conf.Logger.Debug("Stopping the gRPC Server")
-	d.grpcServer.Stop()
+    d.conf.Logger.Debug("Stopping the gRPC Server")
+    if d.cancel != nil {
+        d.cancel() // 🔹 stop broadcast goroutine
+    }
+    d.grpcServer.GracefulStop() // 🔹 let inflight RPCs finish
 }
-
 // Events is a Remote Procedure that is executed by GRPC clients. it instantiates the communication with the server.
 // The messages are sent and read from In and Out channels instead of manipulating the GRPC stream directly.
 func (d *TransportServer) Events(stream pb.Discovery_EventsServer) error {
@@ -103,38 +112,35 @@ func (d *TransportServer) Events(stream pb.Discovery_EventsServer) error {
 	}
 	d.conf.Logger.Debugw("Start handling events", ConnID, connID, EventScope, scope)
 	// Read all outgoing events from the broadcast topic.
-	_ = d.mb.Subscribe(broadcastTopic, d.forwardToStream(stream, scope, connID))
-	errCh := make(chan error)
+	handler := d.forwardToStream(stream, scope, connID)
+	_ = d.mb.Subscribe(broadcastTopic, handler)
+	errCh := make(chan error, 1)
 	go d.forwardFromStream(stream, errCh)
 	// Block until we receive an error.
 	err = <-errCh
 	d.conf.Logger.Debugw("Event handling received error", "Error", err, ConnID, connID, EventScope, scope)
-	_ = d.mb.Unsubscribe(broadcastTopic, d.forwardToStream(stream, scope, connID))
+	_ = d.mb.Unsubscribe(broadcastTopic, handler)
 	d.conf.Logger.Debug("Unsubscribed forwardToStream from the broadcast topic")
 	return err
 }
 
-func (d *TransportServer) serve(lis net.Listener, done chan struct{}) error {
-	if err := d.grpcServer.Serve(lis); err != nil {
-		done <- struct{}{}
-		return err
-	}
-	return nil
+// Publish all outgoing events to the broadcast topic until done.
+func (d *TransportServer) broadcast(ctx context.Context) {
+    for {
+        select {
+        case ev := <-d.conf.Out:
+            if ev == nil {
+                return // channel closed by owner
+            }
+            d.conf.Logger.Debugw("Broadcast outgoing event", "Event", ev)
+            d.mb.Publish(broadcastTopic, ev)
+        case <-ctx.Done():
+            d.conf.Logger.Debug("Stopped broadcasting")
+            return
+        }
+    }
 }
 
-// Publish all outgoing events to the broadcast topic until done.
-func (d *TransportServer) broadcast(done chan struct{}) {
-	for {
-		select {
-		case ev := <-d.conf.Out:
-			d.conf.Logger.Debugw("Broadcast outgoing event", "Event", ev)
-			d.mb.Publish(broadcastTopic, ev)
-		case <-done:
-			d.conf.Logger.Debug("Stopped broadcasting")
-			return
-		}
-	}
-}
 
 // extractMeta extracts metadata from the stream connection context.
 // It expects ConnID and EventScope to be set, it returns errors otherwise.
@@ -185,6 +191,7 @@ func (d *TransportServer) sendEvent(stream pb.Discovery_EventsServer, ev *pb.Eve
 }
 
 // forwardFromStream consumes events from the stream and forwards it to the In channel.
+// forwardFromStream consumes events from the stream and forwards it to the In channel.
 func (d *TransportServer) forwardFromStream(stream pb.Discovery_EventsServer, errCh chan error) {
 	ctx := stream.Context()
 	for {
@@ -195,7 +202,8 @@ func (d *TransportServer) forwardFromStream(stream pb.Discovery_EventsServer, er
 		default:
 			ev, err := stream.Recv()
 			if err == io.EOF {
-				d.conf.Logger.Debugf("Server is exiting due to an EOF")
+				d.conf.Logger.Debugf("Client stream closed (EOF)")
+				errCh <- nil // 🔹 signal Events to exit cleanly
 				return
 			}
 			if err != nil {
@@ -208,3 +216,4 @@ func (d *TransportServer) forwardFromStream(stream pb.Discovery_EventsServer, er
 		}
 	}
 }
+

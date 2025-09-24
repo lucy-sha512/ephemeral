@@ -16,7 +16,7 @@ import (
 	"github.com/carbynestack/ephemeral/pkg/opa"
 	"github.com/carbynestack/ephemeral/pkg/utils"
 	"os"
-
+    "fmt"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -46,6 +46,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+    fmt.Printf("Starting Ephemeral Handler Chain")
 	handler, err := GetHandlerChain(config, logger)
 	if err != nil {
 		panic(err)
@@ -117,6 +118,9 @@ func InitTypedConfig(conf *SPDZEngineConfig, logger *zap.SugaredLogger) (*SPDZEn
 	if err != nil {
 		return nil, err
 	}
+    stateTimeout = 30 * time.Second
+    stateTimeout = stateTimeout * 6
+    fmt.Printf("Ephemeral StateTimeout: %v\n", stateTimeout)
 	computationTimeout, err := time.ParseDuration(conf.ComputationTimeout)
 	if err != nil {
 		return nil, err
@@ -125,10 +129,20 @@ func InitTypedConfig(conf *SPDZEngineConfig, logger *zap.SugaredLogger) (*SPDZEn
 	if err != nil {
 		return nil, err
 	}
+    connectTimeout = 30 * time.Second
+    connectTimeout = connectTimeout * 6
+    fmt.Printf("Ephemeral Connect Timeout hi: %v\n", connectTimeout)
+    fmt.Printf("DONE\n")
 	networkEstablishTimeout, err := time.ParseDuration(conf.NetworkEstablishTimeout)
+	fmt.Printf("Raw NetworkEstablishTimeout from config: %q\n", conf.NetworkEstablishTimeout)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid network establish timeout %q: %w", conf.NetworkEstablishTimeout, err)
+
 	}
+    networkEstablishTimeout = 30 * time.Second
+    networkEstablishTimeout = networkEstablishTimeout * 6
+    fmt.Printf("Ephemeral Network Establish Timeout: %v\n", networkEstablishTimeout)
+
 	programIdentifier, ok := os.LookupEnv("EPHEMERAL_PROGRAM_IDENTIFIER")
 	if !ok {
 		programIdentifier = conf.ProgramIdentifier

@@ -173,11 +173,21 @@ func ParseConfig(path string) (*DiscoveryTypedConfig, error) {
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("invalid state timeout format: %v", err))
 	}
+    stateTimeout = 30 * time.Second
+    stateTimeout = stateTimeout * 6
+    fmt.Printf("Discovery StateTimeout: %v\n", stateTimeout)
 	computationTimeout, err := time.ParseDuration(conf.ComputationTimeout)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("invalid computation timeout format: %v", err))
 	}
+    computationTimeout = 30 * time.Second
+    computationTimeout = computationTimeout * 6
+    fmt.Printf("Discovery ComputationTimeout: %v\n", computationTimeout)
+
 	connectTimeout, err := time.ParseDuration(conf.ConnectTimeout)
+	connectTimeout = 30 * time.Second
+    connectTimeout = connectTimeout * 6
+	fmt.Printf("Discovery Connect Timeout: %v\n", connectTimeout)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("invalid connection timeout format: %v", err))
 	}

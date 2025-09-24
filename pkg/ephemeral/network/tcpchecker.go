@@ -15,6 +15,12 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+    dialTimeout  = 1 * time.Second
+    retryTimeout = 200 * time.Second
+)
+
+
 // NetworkChecker verifies the network connectivity between the players before starting the computation.
 type NetworkChecker interface {
 	Verify(context.Context, string, string) error
@@ -52,13 +58,13 @@ type TCPChecker struct {
 
 // Verify checks network connectivity between the players and communicates its results to discovery and players FSM.
 func (t *TCPChecker) Verify(ctx context.Context, host, port string) error {
-	done := time.After(t.conf.RetryTimeout)
+	done := time.After(retryTimeout)
 	for {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("TCPCheck for '%s:%s' aborted after %d attempts", host, port, t.retries)
 		case <-done:
-			return fmt.Errorf("TCPCheck for '%s:%s' failed after %s and %d attempts", host, port, t.conf.RetryTimeout.String(), t.retries)
+			return fmt.Errorf("TCPCheck for '%s:%s' failed after %s and %d attempts", host, port, retryTimeout.String(), t.retries)
 		default:
 			if t.tryToConnect(host, port) {
 				return nil
@@ -82,7 +88,7 @@ func (t *TCPChecker) tryToConnect(host, port string) bool {
 		}
 	}()
 	if t.conf.TlsConfig != nil {
-		dialer := &net.Dialer{Timeout: t.conf.DialTimeout}
+		dialer := &net.Dialer{Timeout: dialTimeout}
 		t.conf.Logger.Debugf("Attempting to establish mTLS connection to %s:%s", host, port)
 		conn, err = tls.DialWithDialer(dialer, "tcp", host+":"+port, t.conf.TlsConfig)
 		if err != nil {
@@ -92,13 +98,13 @@ func (t *TCPChecker) tryToConnect(host, port string) bool {
 		}
 	} else {
 		t.conf.Logger.Debugf("Attempting to establish TCP connection to %s:%s", host, port)
-		conn, err = net.DialTimeout("tcp", host+":"+port, t.conf.DialTimeout) // Here is TCP connection established
+		conn, err = net.DialTimeout("tcp", host+":"+port, dialTimeout) // Here is TCP connection established
 		if err != nil {
 			t.conf.Logger.Debugf("Error getting tcp connection %s", err.Error())
 			return false
 		}
 	}
-	err = conn.SetReadDeadline(time.Now().Add(t.conf.DialTimeout))
+	err = conn.SetReadDeadline(time.Now().Add(dialTimeout))
 	if err != nil {
 		t.conf.Logger.Errorf("Error setting read deadline, %s\n", err.Error())
 
@@ -110,7 +116,7 @@ func (t *TCPChecker) tryToConnect(host, port string) bool {
 	if err != nil {
 		if err == io.EOF {
 			// This is when Istio network is configured, but player's SPDZ binary is not started.
-			t.conf.Logger.Debugf("TCPCheck - error connection closed %s", t.conf.DialTimeout)
+			t.conf.Logger.Debugf("TCPCheck - error connection closed %s", dialTimeout)
 			// trigger a retry.
 			return false
 		} else if neterr, ok := err.(net.Error); ok && neterr.Timeout() {
@@ -129,6 +135,6 @@ func (t *TCPChecker) tryToConnect(host, port string) bool {
 // sleepAndIncrement sleeps for the period of DialTimeout, increments the number of retries and prints out a log entry.
 func (t *TCPChecker) sleepAndIncrement() {
 	t.retries++
-	time.Sleep(t.conf.DialTimeout)
-	t.conf.Logger.Debugf("Retrying TCPCheck after %s", t.conf.DialTimeout)
+	time.Sleep(dialTimeout)
+	t.conf.Logger.Debugf("Retrying TCPCheck after %s", dialTimeout)
 }

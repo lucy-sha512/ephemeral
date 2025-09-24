@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"runtime"
 	"github.com/carbynestack/ephemeral/pkg/utils"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -123,6 +124,7 @@ func GetTupleFileName(tt castor.TupleType, conf *SPDZEngineTypedConfig, threadNr
 // NewCastorTupleStreamer returns a new instance of castor tuple streamer.
 func NewCastorTupleStreamer(l *zap.SugaredLogger, tt castor.TupleType, conf *SPDZEngineTypedConfig, playerDataDir string, gameID uuid.UUID, threadNr int) (*CastorTupleStreamer, error) {
 	ts, err := NewCastorTupleStreamerWithWriterFactory(l, tt, conf, playerDataDir, gameID, threadNr, DefaultPipeWriterFactory)
+	ts.logger.Debug("Tuple type in creating new Streamer", tt.Name, tt.PreprocessingName)
 	return ts, err
 }
 
@@ -183,6 +185,8 @@ func (ts *CastorTupleStreamer) StartStreamTuples(terminateCh chan struct{}, errC
 	ts.bufferLckCh = make(chan struct{}, 1)
 	ts.tupleBufferCh = make(chan []byte, 1)
 	ts.fetchTuplesCh <- struct{}{}
+	ts.logger.Debug("Starting tuple streamer for type %s", ts.tupleType.Name)
+	ts.logger.Debug("Active Goroutines: %d", runtime.NumGoroutine())
 	go func() {
 		defer func() {
 			close(ts.streamerDoneCh)
@@ -273,6 +277,9 @@ func (ts *CastorTupleStreamer) bufferData(terminateCh chan struct{}, streamerErr
 func (ts *CastorTupleStreamer) getTupleData() ([]byte, error) {
 	requestID := uuid.NewMD5(ts.baseRequestID, []byte(strconv.Itoa(ts.requestCycle)))
 	ts.requestCycle++
+	ts.logger.Debug("Request Cycle %d", ts.requestCycle)
+	ts.logger.Debug("Calling Castor with RequestID %s", requestID)
+	ts.logger.Debug("Stock Size: %d", ts.stockSize)
 	tupleList, err := ts.castorClient.GetTuples(ts.stockSize, ts.tupleType, requestID)
 	if err != nil {
 		return nil, err
