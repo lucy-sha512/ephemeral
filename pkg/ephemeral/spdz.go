@@ -256,7 +256,8 @@ func (s *SPDZEngine) Compile(ctx *CtxConfig) error {
 	}
 	var stdoutSlice []byte
 	var stderrSlice []byte
-	command := fmt.Sprintf("./compile.py -M %s", appName)
+	s.logger.Debugw("Starting my compilation")
+	command := fmt.Sprintf("./compile.py -F 64 %s", appName)
 	stdoutSlice, stderrSlice, err = s.cmder.CallCMD(context.TODO(), []string{command}, s.baseDir)
 	stdOut := string(stdoutSlice)
 	stdErr := string(stderrSlice)
@@ -299,16 +300,16 @@ func (s *SPDZEngine) startMPC(ctx *CtxConfig) {
 		ctx.ErrCh <- fmt.Errorf("error parsing gameID: %v", err)
 		return
 	}
-    allowedTupleTypes := map[string]bool{
-        "BIT_GFP":                 true,
-        "INPUT_MASK_GFP":          true,
-        "MULTIPLICATION_TRIPLE_GFP": true,
-    }
+	allowedTupleTypes := map[string]bool{
+		"BIT_GFP":                   true,
+		"INPUT_MASK_GFP":            true,
+		"MULTIPLICATION_TRIPLE_GFP": true,
+	}
 	for _, tt := range castor.SupportedTupleTypes {
-	    if !allowedTupleTypes[tt.Name] {
-                s.logger.Debugw("Skipping tuple type", TupleType, tt.Name, GameID, gameUUID)
-                continue
-            }
+		if !allowedTupleTypes[tt.Name] {
+			s.logger.Debugw("Skipping tuple type", TupleType, tt.Name, GameID, gameUUID)
+			continue
+		}
 		for thread := 0; thread < nThreads; thread++ {
 			s.logger.Debugw("Creating new tuple streamer", TupleType, tt, "TupleStock", s.config.TupleStock, "Player-Data", s.playerDataPaths[tt.SpdzProtocol], GameID, gameUUID, "ThreadNr", thread)
 			streamer, err := s.streamerFactory(s.logger, tt, s.config, s.playerDataPaths[tt.SpdzProtocol], gameUUID, thread)

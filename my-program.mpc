@@ -1,0 +1,146 @@
+
+program.options_from_args()
+
+from transformers import AutoModel
+import numpy as np
+from Compiler.types import sfix, regint, sint
+from Compiler.library import print_ln
+from ExternalIO import *
+
+
+PRECISION = 16
+SCALE = 2 ** PRECISION
+INPUT_SIZE = 28 * 28
+HIDDEN1 = 128
+HIDDEN2 = 128
+OUTPUT = 10
+
+
+model = AutoModel.from_pretrained("dacorvo/mnist-mlp", trust_remote_code=True)
+state_dict = model.state_dict()
+
+def to_numpy(t):
+    return t.detach().numpy().astype(np.float32)
+
+# Extract weights
+W1 = to_numpy(state_dict["input_layer.weight"]).T
+b1 = to_numpy(state_dict["input_layer.bias"])
+W2 = to_numpy(state_dict["mid_layer.weight"]).T
+b2 = to_numpy(state_dict["mid_layer.bias"])
+W3 = to_numpy(state_dict["output_layer.weight"]).T
+b3 = to_numpy(state_dict["output_layer.bias"])
+
+
+def quantize(mat):
+    return np.round(mat * SCALE).astype(np.int64)
+
+W1_q, b1_q = quantize(W1), quantize(b1)
+W2_q, b2_q = quantize(W2), quantize(b2)
+W3_q, b3_q = quantize(W3), quantize(b3)
+
+
+port=regint(10000)
+listen(port)
+socket_id = regint()
+
+
+acceptclientconnection(socket_id, port)
+
+v_int = sint.read_from_socket(socket_id, INPUT_SIZE)
+
+
+# Convert to sfix array
+v = sfix.Array(INPUT_SIZE)
+for i in range(INPUT_SIZE):
+    # cast each sint to sfix (this preserves secret-shared integer into fixed-point)
+    v[i] = sfix(v_int[i])/ sfix(255)
+
+print_ln("✅ Received MNIST input of size %s", INPUT_SIZE)
+
+# Convert array to (1 x 784) matrix
+x = sfix.Matrix(1, INPUT_SIZE)
+for i in range(INPUT_SIZE):
+    x[0][i] = v[i]
+
+print_ln("🧮 Converted input to sfix matrix successfully.")
+
+# -------------------------------
+# Convert weights to sfix matrices (using quantized ints divided by SCALE)
+# -------------------------------
+def const_matrix(mat):
+    rows, cols = mat.shape
+    m = sfix.Matrix(rows, cols)
+    for i in range(rows):
+        for j in range(cols):
+            # mat contains quantized integers (mat = original * SCALE)
+            # convert back to fixed point by dividing by SCALE and wrapping as sfix
+            m[i][j] = sfix(mat[i][j] / SCALE)
+    return m
+
+def const_vector_as_matrix(vec):
+    n = len(vec)
+    m = sfix.Matrix(1, n)
+    for j in range(n):
+        m[0][j] = sfix(vec[j] / SCALE)
+    return m
+
+W1_fix = const_matrix(W1_q)
+b1_fix = const_vector_as_matrix(b1_q)
+W2_fix = const_matrix(W2_q)
+b2_fix = const_vector_as_matrix(b2_q)
+W3_fix = const_matrix(W3_q)
+b3_fix = const_vector_as_matrix(b3_q)
+
+# -------------------------------
+# Helper: ReLU and Argmax
+# -------------------------------
+def relu(arr):
+    # arr is a list of sfix values
+    return [sfix.max(a, sfix(0)) for a in arr]
+
+def argmax(arr):
+    # NOTE: this reveals values before comparing (matches your original approach).
+    # If you need a fully secret argmax, use a secure argmax primitive.
+    vals = [a.reveal() for a in arr]
+    max_idx = regint(0)
+    max_val = vals[0]
+    for i in range(1, len(vals)):
+        is_greater = vals[i] > max_val
+        max_val = is_greater.if_else(vals[i], max_val)
+        max_idx = is_greater.if_else(regint(i), max_idx)
+    return max_idx
+
+# -------------------------------
+# Forward pass
+# -------------------------------
+hidden1 = x.dot(W1_fix) + b1_fix
+hidden1_arr = relu(hidden1.to_array())
+
+hidden2 = sfix.Matrix(1, HIDDEN2)
+for j in range(HIDDEN2):
+    s = sfix(0)
+    for i in range(HIDDEN1):
+        s += hidden1_arr[i] * W2_fix[i][j]
+    s += b2_fix[0][j]
+    hidden2[0][j] = s
+hidden2_arr = relu(hidden2.to_array())
+
+out = sfix.Array(OUTPUT)
+for j in range(OUTPUT):
+    s = sfix(0)
+    for i in range(HIDDEN2):
+        s += hidden2_arr[i] * W3_fix[i][j]
+    s += b3_fix[0][j]
+    out[j] = s
+
+pred_label = argmax(out)
+print_ln("🎯 Predicted label: %s", pred_label)
+
+# If you want to send the predicted label back over the socket as an integer:
+# convert pred_label (regint) to a small sint array and write back
+resp = sint.Array(1)
+# cast regint -> sint (depending on your runtime you might need to reveal or convert)
+# here we do a simple conversion by writing regint as sint via sint(pred_label)
+resp[0] = pred_label.reveal() 
+sint.write_to_socket(socket_id, resp)
+print_ln("📤 Sent predicted label back to client.")

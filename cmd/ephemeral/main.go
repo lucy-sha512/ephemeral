@@ -9,18 +9,19 @@ import (
 	"encoding/json"
 	"errors"
 
+	"fmt"
+	"math/big"
+	"net/http"
+	"net/url"
+	"os"
+	"time"
+
 	"github.com/carbynestack/ephemeral/pkg/amphora"
 	"github.com/carbynestack/ephemeral/pkg/castor"
 	. "github.com/carbynestack/ephemeral/pkg/ephemeral"
 	l "github.com/carbynestack/ephemeral/pkg/logger"
 	"github.com/carbynestack/ephemeral/pkg/opa"
 	"github.com/carbynestack/ephemeral/pkg/utils"
-	"os"
-    "fmt"
-	"math/big"
-	"net/http"
-	"net/url"
-	"time"
 
 	. "github.com/carbynestack/ephemeral/pkg/types"
 
@@ -46,7 +47,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-    fmt.Printf("Starting Ephemeral Handler Chain")
+	fmt.Printf("Starting Ephemeral Handler Chain")
 	handler, err := GetHandlerChain(config, logger)
 	if err != nil {
 		panic(err)
@@ -118,9 +119,9 @@ func InitTypedConfig(conf *SPDZEngineConfig, logger *zap.SugaredLogger) (*SPDZEn
 	if err != nil {
 		return nil, err
 	}
-    stateTimeout = 30 * time.Second
-    stateTimeout = stateTimeout * 6
-    fmt.Printf("Ephemeral StateTimeout: %v\n", stateTimeout)
+	stateTimeout = 30 * time.Second
+	stateTimeout = stateTimeout * 20
+	fmt.Printf("Ephemeral StateTimeout: %v\n", stateTimeout)
 	computationTimeout, err := time.ParseDuration(conf.ComputationTimeout)
 	if err != nil {
 		return nil, err
@@ -129,19 +130,19 @@ func InitTypedConfig(conf *SPDZEngineConfig, logger *zap.SugaredLogger) (*SPDZEn
 	if err != nil {
 		return nil, err
 	}
-    connectTimeout = 30 * time.Second
-    connectTimeout = connectTimeout * 6
-    fmt.Printf("Ephemeral Connect Timeout hi: %v\n", connectTimeout)
-    fmt.Printf("DONE\n")
+	connectTimeout = 30 * time.Second
+	connectTimeout = connectTimeout * 6
+	fmt.Printf("Ephemeral Connect Timeout hi: %v\n", connectTimeout)
+	fmt.Printf("DONE\n")
 	networkEstablishTimeout, err := time.ParseDuration(conf.NetworkEstablishTimeout)
 	fmt.Printf("Raw NetworkEstablishTimeout from config: %q\n", conf.NetworkEstablishTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("invalid network establish timeout %q: %w", conf.NetworkEstablishTimeout, err)
 
 	}
-    networkEstablishTimeout = 30 * time.Second
-    networkEstablishTimeout = networkEstablishTimeout * 6
-    fmt.Printf("Ephemeral Network Establish Timeout: %v\n", networkEstablishTimeout)
+	networkEstablishTimeout = 30 * time.Second
+	networkEstablishTimeout = networkEstablishTimeout * 6
+	fmt.Printf("Ephemeral Network Establish Timeout: %v\n", networkEstablishTimeout)
 
 	programIdentifier, ok := os.LookupEnv("EPHEMERAL_PROGRAM_IDENTIFIER")
 	if !ok {

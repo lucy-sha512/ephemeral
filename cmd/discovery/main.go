@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/carbynestack/ephemeral/pkg/discovery"
 	c "github.com/carbynestack/ephemeral/pkg/discovery/transport/client"
 	cl "github.com/carbynestack/ephemeral/pkg/discovery/transport/client"
@@ -21,7 +23,6 @@ import (
 	"github.com/carbynestack/ephemeral/pkg/utils"
 	mb "github.com/vardius/message-bus"
 	"go.uber.org/zap"
-	"time"
 )
 
 const (
@@ -173,20 +174,20 @@ func ParseConfig(path string) (*DiscoveryTypedConfig, error) {
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("invalid state timeout format: %v", err))
 	}
-    stateTimeout = 30 * time.Second
-    stateTimeout = stateTimeout * 6
-    fmt.Printf("Discovery StateTimeout: %v\n", stateTimeout)
+	stateTimeout = 30 * time.Second
+	stateTimeout = stateTimeout * 20
+	fmt.Printf("Discovery StateTimeout: %v\n", stateTimeout)
 	computationTimeout, err := time.ParseDuration(conf.ComputationTimeout)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("invalid computation timeout format: %v", err))
 	}
-    computationTimeout = 30 * time.Second
-    computationTimeout = computationTimeout * 6
-    fmt.Printf("Discovery ComputationTimeout: %v\n", computationTimeout)
+	computationTimeout = 30 * time.Second
+	computationTimeout = computationTimeout * 20
+	fmt.Printf("Discovery ComputationTimeout: %v\n", computationTimeout)
 
 	connectTimeout, err := time.ParseDuration(conf.ConnectTimeout)
 	connectTimeout = 30 * time.Second
-    connectTimeout = connectTimeout * 6
+	connectTimeout = connectTimeout * 6
 	fmt.Printf("Discovery Connect Timeout: %v\n", connectTimeout)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("invalid connection timeout format: %v", err))

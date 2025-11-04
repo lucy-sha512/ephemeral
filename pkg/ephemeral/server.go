@@ -10,15 +10,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/carbynestack/ephemeral/pkg/discovery/fsm"
-	. "github.com/carbynestack/ephemeral/pkg/types"
-	. "github.com/carbynestack/ephemeral/pkg/utils"
 	"io/ioutil"
 	"mime"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/carbynestack/ephemeral/pkg/discovery/fsm"
+	. "github.com/carbynestack/ephemeral/pkg/types"
+	. "github.com/carbynestack/ephemeral/pkg/utils"
 
 	"github.com/google/uuid"
 

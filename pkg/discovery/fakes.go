@@ -6,6 +6,7 @@ package discovery
 
 import (
 	"errors"
+
 	"github.com/carbynestack/ephemeral/pkg/discovery/fsm"
 
 	pb "github.com/carbynestack/ephemeral/pkg/discovery/transport/proto"
