@@ -12,17 +12,31 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"go.uber.org/zap"
+	"io"
 	"net"
-	"sync"
 )
 
 var _ = Describe("Carrier", func() {
 	var ctx = context.TODO()
-	var playerID = int32(1) // PlayerID 1, since PlayerID==0 contains another check when connecting
+	var playerID = int32(1)
+	var specificationFrame = []byte{1, 0, 0, 0, 1}
+
+	serveHandshake := func(server net.Conn, connectionOutput []byte) <-chan error {
+		done := make(chan error, 1)
+		go func() {
+			if _, err := io.ReadFull(server, connectionOutput); err != nil {
+				done <- err
+				return
+			}
+			_, err := server.Write(specificationFrame)
+			done <- err
+		}()
+		return done
+	}
 
 	It("connects to a socket", func() {
 		var connected bool
-		conn := FakeNetConnection{}
+		conn := FakeNetConnection{ReadData: specificationFrame}
 		fakeDialer := func(ctx context.Context, addr, port string) (net.Conn, error) {
 			connected = true
 			return &conn, nil
@@ -36,7 +50,7 @@ var _ = Describe("Carrier", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 	It("closes socket connection", func() {
-		conn := FakeNetConnection{}
+		conn := FakeNetConnection{ReadData: specificationFrame}
 		fakeDialer := func(ctx context.Context, addr, port string) (net.Conn, error) {
 			return &conn, nil
 		}
@@ -80,10 +94,12 @@ var _ = Describe("Carrier", func() {
 				Packer: packer,
 				Logger: zap.NewNop().Sugar(),
 			}
-			go server.Read(connectionOutput)
-			carrier.Connect(ctx, playerID, "", "")
+			handshakeDone := serveHandshake(server, connectionOutput)
+			err := carrier.Connect(ctx, playerID, "", "")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(<-handshakeDone).NotTo(HaveOccurred())
 			go server.Read(output)
-			err := carrier.Send(secret)
+			err = carrier.Send(secret)
 			carrier.Close()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output[0]).To(Equal(byte(1)))
@@ -96,10 +112,12 @@ var _ = Describe("Carrier", func() {
 				Packer: packer,
 				Logger: zap.NewNop().Sugar(),
 			}
-			go server.Read(connectionOutput)
-			carrier.Connect(ctx, playerID, "", "")
+			handshakeDone := serveHandshake(server, connectionOutput)
+			err := carrier.Connect(ctx, playerID, "", "")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(<-handshakeDone).NotTo(HaveOccurred())
 			go server.Read(output)
-			err := carrier.Send(secret)
+			err = carrier.Send(secret)
 			carrier.Close()
 			Expect(err).To(HaveOccurred())
 		})
@@ -113,11 +131,13 @@ var _ = Describe("Carrier", func() {
 				Packer: packer,
 				Logger: zap.NewNop().Sugar(),
 			}
-			go server.Read(connectionOutput)
-			carrier.Connect(ctx, playerID, "", "")
+			handshakeDone := serveHandshake(server, connectionOutput)
+			err := carrier.Connect(ctx, playerID, "", "")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(<-handshakeDone).NotTo(HaveOccurred())
 			// Closing the connection to trigger a failure due to writing into the closed socket.
 			server.Close()
-			err := carrier.Send(secret)
+			err = carrier.Send(secret)
 			carrier.Close()
 			Expect(err).To(HaveOccurred())
 		})
@@ -135,8 +155,10 @@ var _ = Describe("Carrier", func() {
 				Packer: &packer,
 				Logger: zap.NewNop().Sugar(),
 			}
-			go server.Read(connectionOutput)
-			carrier.Connect(ctx, playerID, "", "")
+			handshakeDone := serveHandshake(server, connectionOutput)
+			err := carrier.Connect(ctx, playerID, "", "")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(<-handshakeDone).NotTo(HaveOccurred())
 			go func() {
 				server.Write(serverResponse)
 				server.Close()
@@ -157,11 +179,13 @@ var _ = Describe("Carrier", func() {
 				Packer: &packer,
 				Logger: zap.NewNop().Sugar(),
 			}
-			go server.Read(connectionOutput)
-			carrier.Connect(ctx, playerID, "", "")
+			handshakeDone := serveHandshake(server, connectionOutput)
+			err := carrier.Connect(ctx, playerID, "", "")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(<-handshakeDone).NotTo(HaveOccurred())
 			server.Close()
 			anyConverter := &PlaintextConverter{}
-			_, err := carrier.Read(anyConverter, false)
+			_, err = carrier.Read(anyConverter, false)
 			Expect(err).To(HaveOccurred())
 		})
 		It("returns an error when unmarshalling the response fails", func() {
@@ -172,52 +196,37 @@ var _ = Describe("Carrier", func() {
 				Packer: packer,
 				Logger: zap.NewNop().Sugar(),
 			}
-			go server.Read(connectionOutput)
-			carrier.Connect(ctx, playerID, "", "")
+			handshakeDone := serveHandshake(server, connectionOutput)
+			err := carrier.Connect(ctx, playerID, "", "")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(<-handshakeDone).NotTo(HaveOccurred())
 			go func() {
 				server.Write(serverResponse)
 				server.Close()
 			}()
 			anyConverter := &PlaintextConverter{}
-			_, err := carrier.Read(anyConverter, false)
+			_, err = carrier.Read(anyConverter, false)
 			Expect(err).To(HaveOccurred())
 		})
 	})
 
 	Context("when connecting as Player0", func() {
 		playerID := int32(0)
-		It("will receive and handle the server's fileHeader", func() {
-			// Arrange
-			// ToDo: Better Response for real-life scenario?
-			serverResponse := []byte{1, 0, 0, 0, 1} // 4 byte length + header, in this case "1". In real case Descriptor + Prime
+		It("consumes the server specification", func() {
 			packer := &FakeBrokenPacker{}
 			carrier := Carrier{
 				Dialer: dialer,
 				Packer: packer,
 				Logger: zap.NewNop().Sugar(),
 			}
-			waitGroup := sync.WaitGroup{}
-			waitGroup.Add(1)
-			go server.Read(connectionOutput)
-
-			// Act
-			var errConnecting error
-			go func() {
-				errConnecting = carrier.Connect(ctx, playerID, "", "")
-				waitGroup.Done()
-			}()
-
-			numberOfBytesWritten, errWrite := server.Write(serverResponse)
+			handshakeDone := serveHandshake(server, connectionOutput)
+			errConnecting := carrier.Connect(ctx, playerID, "", "")
+			errHandshake := <-handshakeDone
 			errClose := server.Close()
 
-			// Make sure we wait until the Connect and Write are done
-			waitGroup.Wait()
-
-			// Assert
 			Expect(connectionOutput).To(Equal([]byte{1, 0, 0, 0, fmt.Sprintf("%d", playerID)[0]}))
 			Expect(errConnecting).NotTo(HaveOccurred())
-			Expect(errWrite).NotTo(HaveOccurred())
-			Expect(numberOfBytesWritten).To(Equal(len(serverResponse)))
+			Expect(errHandshake).NotTo(HaveOccurred())
 			Expect(errClose).NotTo(HaveOccurred())
 		})
 	})

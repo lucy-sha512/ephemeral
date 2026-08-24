@@ -17,6 +17,8 @@ import (
 	"sync"
 )
 
+const maxSpecificationSize = 64 * 1024
+
 // Result contains the response from SPDZ runtime computation.
 type Result struct {
 	Response []string `json:"response"`
@@ -66,40 +68,37 @@ func (c *Carrier) Connect(ctx context.Context, playerID int32, host string, port
 	if err != nil {
 		return err
 	}
-	if playerID == 0 {
-		err = c.readPrime()
-		if err != nil {
-			return err
-		}
+	// MP-SPDZ sends a length-prefixed domain specification immediately after
+	// accepting every external client connection. It must be consumed before
+	// input or output frames. The legacy implementation consumed an old
+	// player-zero prime header only, leaving this frame in player one's result
+	// stream.
+	err = c.readSpecification()
+	if err != nil {
+		return err
 	}
 	return nil
 }
 
-// readPrime reads the file header from the MP-SPDZ connection
-// In MP-SPDZ connection, this will only be used when player0 connects as client to MP-SPDZ
-//
-// For the header composition, check:
-// https://github.com/data61/MP-SPDZ/issues/418#issuecomment-975424591
-//
-// It is made up as follows:
-//   - Careful: The other header parts are not part of this communication, they are only used when reading tuple files
-//   - length of the prime as 4-byte number little-endian (e.g. 16),
-//   - prime in big-endian (e.g. 170141183460469231731687303715885907969)
-func (c Carrier) readPrime() error {
-	const size = 4
-	readBytes := make([]byte, size)
-	_, err := io.LimitReader(c.Conn, size).Read(readBytes)
-	if err != nil {
-		return err
+// readSpecification consumes MP-SPDZ's length-prefixed external-client
+// specification frame. The specification is sent once per connection and
+// describes the field/domain; it is not an MPC program result.
+func (c Carrier) readSpecification() error {
+	const sizeLength = 4
+	lengthData := make([]byte, sizeLength)
+	if _, err := io.ReadFull(c.Conn, lengthData); err != nil {
+		return fmt.Errorf("reading MP-SPDZ specification length: %w", err)
 	}
 
-	sizeOfHeader := binary.LittleEndian.Uint32(readBytes)
-	readBytes = make([]byte, sizeOfHeader)
-	_, err = io.LimitReader(c.Conn, int64(sizeOfHeader)).Read(readBytes)
-	if err != nil {
-		return err
+	size := binary.LittleEndian.Uint32(lengthData)
+	if size == 0 || size > maxSpecificationSize {
+		return fmt.Errorf("invalid MP-SPDZ specification size: %d", size)
 	}
-	//ToDo, compare read PRIME with prime number from config?
+
+	specification := make([]byte, size)
+	if _, err := io.ReadFull(c.Conn, specification); err != nil {
+		return fmt.Errorf("reading MP-SPDZ specification: %w", err)
+	}
 	return nil
 }
 

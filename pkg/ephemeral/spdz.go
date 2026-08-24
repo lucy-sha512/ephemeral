@@ -140,7 +140,15 @@ func NewSPDZEngine(logger *zap.SugaredLogger, cmder Executor, config *SPDZEngine
 		TlsConfig:    config.TlsConfig,
 	}
 	feeder := NewAmphoraFeeder(logger, config)
-	checker := network.NewTCPChecker(c)
+	var checker network.NetworkChecker = network.NewTCPChecker(c)
+	if config.TlsConfig != nil {
+		// An active check through the mTLS gateway is forwarded to the real
+		// MP-SPDZ player socket. MP-SPDZ v0.4.3 treats that probe as its peer
+		// connection and exits when the checker closes it. The proxy already
+		// verifies its local listeners before the player starts, so avoid
+		// injecting a synthetic connection into the remote MPC process.
+		checker = &network.NoopChecker{}
+	}
 	proxy := network.NewProxy(logger, config, checker)
 	playerDataPaths, err := preparePlayerData(config)
 	if err != nil {
@@ -252,7 +260,7 @@ func (s *SPDZEngine) Compile(ctx *CtxConfig) error {
 	}
 	var stdoutSlice []byte
 	var stderrSlice []byte
-	command := fmt.Sprintf("./compile.py -M %s", appName)
+	command := fmt.Sprintf("./compile.py -M -P %s %s", s.config.Prime.String(), appName)
 	stdoutSlice, stderrSlice, err = s.cmder.CallCMD(context.TODO(), []string{command}, s.baseDir)
 	stdOut := string(stdoutSlice)
 	stdErr := string(stderrSlice)
@@ -270,6 +278,20 @@ func (s *SPDZEngine) getFeedPort() string {
 
 func (s *SPDZEngine) startMPC(ctx *CtxConfig) {
 	s.logger.Debugw("Starting MPC", GameID, ctx.Act.GameID)
+	if s.config.TlsConfig != nil && s.config.PlayerID > 0 {
+		// The local proxy accepts before Istio knows whether the remote MP-SPDZ
+		// listener is ready. A higher-numbered player can therefore complete its
+		// local connect and then receive a reset from the remote gateway, which
+		// MP-SPDZ v0.4.3 treats as fatal. Start party 0 first; the remaining
+		// parties follow in deterministic order without probing the MPC socket.
+		delay := time.Duration(s.config.PlayerID) * time.Second
+		s.logger.Infof("Waiting %s for lower-numbered MPC players to start (gameID: %s)", delay, ctx.Act.GameID)
+		select {
+		case <-time.After(delay):
+		case <-ctx.Context.Done():
+			return
+		}
+	}
 	nThreads, err := s.getNumberOfThreads()
 	if err != nil {
 		ctx.ErrCh <- fmt.Errorf("failed to determine the number of threads: %v", err)

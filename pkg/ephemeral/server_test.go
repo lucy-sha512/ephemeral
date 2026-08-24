@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/carbynestack/ephemeral/pkg/discovery/fsm"
+	"os"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -36,6 +37,18 @@ var _ = Describe("Server", func() {
 
 	const gameID = "71b2a100-f3f6-11e9-81b4-2a2ae2dbcce4"
 	authHeader := fmt.Sprintf("Bearer header.%s.signature", base64.StdEncoding.WithPadding(base64.NoPadding).EncodeToString([]byte(`{"sub":"someID"}`)))
+	Context("when retrieving the pod name", func() {
+		It("uses the operating-system hostname without running a shell command", func() {
+			server := NewServer("sub", nil, nil, zap.NewNop().Sugar(), &SPDZEngineTypedConfig{})
+			server.executor = &BrokenFakeExecutor{}
+
+			expected, err := os.Hostname()
+			Expect(err).NotTo(HaveOccurred())
+			actual, err := server.getPodName()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(actual).To(Equal(expected))
+		})
+	})
 	Context("when sending http requests", func() {
 		BeforeEach(func() {
 			act = &Activation{

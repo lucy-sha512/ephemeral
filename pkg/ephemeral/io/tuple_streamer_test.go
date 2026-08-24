@@ -9,6 +9,7 @@ package io
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/carbynestack/ephemeral/pkg/utils"
@@ -284,21 +285,51 @@ var _ = Describe("Tuple Streamer", func() {
 
 	Context("when generateHeader", func() {
 		Context("when protocol is SPD gfp", func() {
-			It("returns correct header", func() {
-				expectedHeader := []byte{29, 0, 0, 0, 0, 0, 0, 0, 83, 80, 68, 90, 32, 103, 102, 112, 0, 16, 0, 0, 0, 149, 137, 7, 69, 143, 33, 54, 134, 27, 215, 85, 74, 36, 52, 0, 1}
+			It("returns the v0.4.3 header for Apollo's negative MAC-key share", func() {
+				expectedHeader, err := hex.DecodeString("31000000000000005350445a206766700010000000958907458f2136861bd7554a24340001010000007e5a0000000000000000000000000000")
+				Expect(err).NotTo(HaveOccurred())
 				var prime big.Int
 				prime.SetString("198766463529478683931867765928436695041", 10)
-				config := SPDZEngineTypedConfig{Prime: prime}
-				Expect(generateHeader(castor.SPDZGfp, &config)).To(Equal(expectedHeader))
+				var macKey big.Int
+				macKey.SetString("-88222337191559387830816715872691188861", 10)
+				config := SPDZEngineTypedConfig{Prime: prime, GfpMacKey: macKey}
+				header, err := generateHeader(castor.SPDZGfp, &config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(header).To(Equal(expectedHeader))
+			})
+
+			It("returns the v0.4.3 header for Starbuck's positive MAC-key share", func() {
+				expectedHeader, err := hex.DecodeString("31000000000000005350445a206766700010000000958907458f2136861bd7554a24340001010000005bce0000000000000000000000000000")
+				Expect(err).NotTo(HaveOccurred())
+				var prime big.Int
+				prime.SetString("198766463529478683931867765928436695041", 10)
+				var macKey big.Int
+				macKey.SetString("1113507028231509545156335486838233835", 10)
+				config := SPDZEngineTypedConfig{Prime: prime, GfpMacKey: macKey}
+				header, err := generateHeader(castor.SPDZGfp, &config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(header).To(Equal(expectedHeader))
 			})
 		})
 		Context("when protocol is SPD gf2n", func() {
-			It("returns correct header", func() {
-				expectedHeader := []byte{22, 0, 0, 0, 0, 0, 0, 0, 83, 80, 68, 90, 32, 103, 102, 50, 110, 95, 16, 0, 0, 0, 0, 0, 0, 0, 40, 0, 0, 0}
+			It("returns the v0.4.3 header for Apollo's GF2N MAC-key share", func() {
+				expectedHeader, err := hex.DecodeString("1e000000000000005350445a206766326e5f080000000000000028000000e623b360b6000000")
+				Expect(err).NotTo(HaveOccurred())
 				gf2nBitLength := int32(40)
-				gf2nStorageSize := int32(16)
-				config := SPDZEngineTypedConfig{Gf2nBitLength: gf2nBitLength, Gf2nStorageSize: gf2nStorageSize}
-				Expect(generateHeader(castor.SPDZGf2n, &config)).To(Equal(expectedHeader))
+				gf2nStorageSize := int32(8)
+				config := SPDZEngineTypedConfig{Gf2nBitLength: gf2nBitLength, Gf2nStorageSize: gf2nStorageSize, Gf2nMacKey: "0xb660b323e6"}
+				header, err := generateHeader(castor.SPDZGf2n, &config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(header).To(Equal(expectedHeader))
+			})
+
+			It("returns the v0.4.3 header for Starbuck's GF2N MAC-key share", func() {
+				expectedHeader, err := hex.DecodeString("1e000000000000005350445a206766326e5f0800000000000000280000003c34a0c94e000000")
+				Expect(err).NotTo(HaveOccurred())
+				config := SPDZEngineTypedConfig{Gf2nBitLength: 40, Gf2nStorageSize: 8, Gf2nMacKey: "0x4ec9a0343c"}
+				header, err := generateHeader(castor.SPDZGf2n, &config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(header).To(Equal(expectedHeader))
 			})
 		})
 	})

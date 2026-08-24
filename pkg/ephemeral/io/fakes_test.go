@@ -6,19 +6,26 @@ package io
 
 import (
 	"errors"
+	"io"
 	"net"
 	"time"
 )
 
 type FakeNetConnection struct {
-	Closed bool
+	Closed   bool
+	ReadData []byte
 }
 
 func (fnc *FakeNetConnection) Read(b []byte) (n int, err error) {
-	return 0, nil
+	if len(fnc.ReadData) == 0 {
+		return 0, io.EOF
+	}
+	n = copy(b, fnc.ReadData)
+	fnc.ReadData = fnc.ReadData[n:]
+	return n, nil
 }
 func (fnc *FakeNetConnection) Write(b []byte) (n int, err error) {
-	return 0, nil
+	return len(b), nil
 }
 func (fnc *FakeNetConnection) Close() error {
 	fnc.Closed = true

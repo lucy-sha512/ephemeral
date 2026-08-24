@@ -16,6 +16,7 @@ import (
 	"io/ioutil"
 	"mime"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -389,16 +390,10 @@ func (p *PlayerWithIO) History() *fsm.History {
 }
 
 func (s *Server) getPodName() (string, error) {
-	// TODO: this is brittle, read the pod name from more reliable place.
-	//       use something like os.Getenv("HOST_NAME")?
-	cmder := s.executor
-	name, _, err := cmder.CallCMD(context.TODO(), []string{"hostname"}, "/")
-	if err != nil {
-		return "", err
-	}
-	hostname := strings.TrimSuffix(string(name), "\n")
-	hostname = strings.TrimSuffix(hostname, "\r")
-	return hostname, err
+	// Kubernetes sets the container hostname to the pod name. Use the syscall
+	// directly instead of the generic command runner: it wraps commands with
+	// `script`, which attempts to create /typescript when run with Dir="/".
+	return os.Hostname()
 }
 
 // Determine whether the request `content-type` includes a

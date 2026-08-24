@@ -139,7 +139,9 @@ func NewCastorTupleStreamerWithWriterFactory(l *zap.SugaredLogger, tt castor.Tup
 	if err != nil {
 		return nil, fmt.Errorf("error creating header: %v", err)
 	}
-	loggerWithContext.Debugf("Generated tuple file header: %x", headerData)
+	// MP-SPDZ v0.4.3 file signatures include the local MAC-key share. Do not
+	// write header bytes to the log because that would disclose key material.
+	loggerWithContext.Debugw("Generated tuple file header", "Bytes", len(headerData))
 	return &CastorTupleStreamer{
 		logger:        loggerWithContext,
 		pipeWriter:    pipeWriter,
@@ -352,18 +354,26 @@ func (ts *CastorTupleStreamer) tupleListToByteArray(tl *castor.TupleList) ([]byt
 func generateHeader(sp castor.SPDZProtocol, conf *SPDZEngineTypedConfig) ([]byte, error) {
 	switch sp {
 	case castor.SPDZGfp:
-		return generateGfpHeader(conf.Prime), nil
+		return generateGfpHeader(conf.Prime, conf.GfpMacKey)
 	case castor.SPDZGf2n:
-		return generateGf2nHeader(conf.Gf2nBitLength, conf.Gf2nStorageSize), nil
+		return generateGf2nHeader(conf.Gf2nBitLength, conf.Gf2nStorageSize, conf.Gf2nMacKey)
 	}
 	return nil, errors.New("unsupported spdz protocol " + sp.Descriptor)
 }
 
-func generateGfpHeader(prime big.Int) []byte {
+// generateGfpHeader creates the v0.4.3 file signature for a malicious gfp
+// preprocessing file. The MAC key is stored in the MP-SPDZ Montgomery form.
+func generateGfpHeader(prime, macKey big.Int) ([]byte, error) {
+	if prime.Sign() <= 0 {
+		return nil, errors.New("gfp prime must be positive")
+	}
+
 	descriptor := []byte(castor.SPDZGfp.Descriptor)
 	primeBytes := prime.Bytes()
 	primeByteLength := len(primeBytes)
-	totalSizeInBytes := uint64(len(descriptor) + 1 + 4 + primeByteLength)
+	fieldSpecificationSize := 1 + 4 + primeByteLength + 4
+	macKeySize := ((prime.BitLen() + 63) / 64) * 8
+	totalSizeInBytes := uint64(len(descriptor) + fieldSpecificationSize + macKeySize)
 
 	var result []byte
 
@@ -378,10 +388,45 @@ func generateGfpHeader(prime big.Int) []byte {
 	result = append(result, bytes...)      // Prime length to follow (e.g. 16 byte == 128 bit)
 	result = append(result, primeBytes...) // The prime itself
 
-	return result
+	// Zp_Data::pack() stores the Montgomery flag as a four-byte integer. The
+	// default Player-Online.x invocation uses Montgomery arithmetic.
+	binary.LittleEndian.PutUint32(bytes, 1)
+	result = append(result, bytes...)
+
+	// gfp::pack() writes the local MAC-key share in Montgomery representation
+	// as little-endian machine limbs. For a prime using n 64-bit limbs this is
+	// macKey * 2^(64*n) mod prime, padded to n*8 bytes.
+	modulus := new(big.Int).Set(&prime)
+	montgomeryFactor := new(big.Int).Lsh(big.NewInt(1), uint(macKeySize*8))
+	montgomeryKey := new(big.Int).Mod(new(big.Int).Set(&macKey), modulus)
+	if montgomeryKey.Sign() < 0 {
+		montgomeryKey.Add(montgomeryKey, modulus)
+	}
+	montgomeryKey.Mul(montgomeryKey, montgomeryFactor)
+	montgomeryKey.Mod(montgomeryKey, modulus)
+
+	macKeyBytes := make([]byte, macKeySize)
+	bigEndianKey := montgomeryKey.Bytes()
+	for i := range bigEndianKey {
+		macKeyBytes[i] = bigEndianKey[len(bigEndianKey)-1-i]
+	}
+	result = append(result, macKeyBytes...)
+
+	return result, nil
 }
 
-func generateGf2nHeader(bitLength int32, storageSize int32) []byte {
+// generateGf2nHeader creates the v0.4.3 file signature for a malicious gf2n
+// preprocessing file. The GF2N MAC key is stored as an unsigned little-endian
+// value using the configured storage size.
+func generateGf2nHeader(bitLength int32, storageSize int32, macKey string) ([]byte, error) {
+	if storageSize <= 0 {
+		return nil, errors.New("gf2n storage size must be positive")
+	}
+	parsedMacKey, ok := new(big.Int).SetString(macKey, 0)
+	if !ok || parsedMacKey.Sign() < 0 {
+		return nil, fmt.Errorf("invalid gf2n MAC key %q", macKey)
+	}
+
 	protocol := []byte(castor.SPDZGf2n.Descriptor) // e.g. "SPDZ gf2n"
 
 	var domain []byte
@@ -392,7 +437,7 @@ func generateGf2nHeader(bitLength int32, storageSize int32) []byte {
 	domain = append(domain, storageSizeData...) // e.g. 8
 	domain = append(domain, nValue...)          // e.g. 40
 
-	totalSizeInBytes := uint64(len(protocol) + len(domain))
+	totalSizeInBytes := uint64(len(protocol) + len(domain) + int(storageSize))
 	size := make([]byte, 8)
 	binary.LittleEndian.PutUint64(size, totalSizeInBytes)
 
@@ -401,5 +446,15 @@ func generateGf2nHeader(bitLength int32, storageSize int32) []byte {
 	result = append(result, protocol...) // e.g. "SPDZ gf2n"
 	result = append(result, domain...)   // e.g. 40
 
-	return result
+	macKeyBytes := make([]byte, storageSize)
+	bigEndianKey := parsedMacKey.Bytes()
+	if len(bigEndianKey) > len(macKeyBytes) {
+		return nil, fmt.Errorf("gf2n MAC key %q exceeds %d-byte storage", macKey, storageSize)
+	}
+	for i := range bigEndianKey {
+		macKeyBytes[i] = bigEndianKey[len(bigEndianKey)-1-i]
+	}
+	result = append(result, macKeyBytes...)
+
+	return result, nil
 }
