@@ -1,0 +1,14 @@
+# Published portable MP-SPDZ v0.4.3 runtime for Carbyne Stack Ephemeral.
+#
+# Use with an existing release:
+#   helm upgrade cs-ephemeral ./charts/ephemeral --reuse-values \
+#     -f charts/ephemeral/values-mp-spdz-r11.yaml --namespace default
+#
+# Do not remove --reuse-values: it retains the party-specific SPDZ parameters,
+# TLS settings, discovery settings, player ID, and frontend URL.
+ephemeral:
+  image:
+    registry: ghcr.io
+    repository: lucy-sha512/ephemeral-mpspdz-test/ephemeral
+    tag: v0.4.3-test-r11
+    pullPolicy: IfNotPresent

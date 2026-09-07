@@ -37,6 +37,18 @@ Ephemeral is composed of these components:
 - **[Helm Chart](charts/ephemeral)** - A Helm chart to deploy Ephemeral on a
   Kubernetes cluster.
 
+## MP-SPDZ upgrades and portable deployments
+
+Use the [MP-SPDZ portable deployment guide](docs/MP-SPDZ-PORTABLE-DEPLOYMENT.md)
+to build a release-pinned MP-SPDZ base image, deploy it across every Carbyne
+Stack party, verify the live engine commit, and troubleshoot CPU or Kind/Istio
+compatibility issues.
+
+If the published r11 image is sufficient, use the
+[existing-deployment r11 guide](docs/USE-PUBLISHED-MP-SPDZ-R11.md). It upgrades
+only the Ephemeral image while retaining the current Helm values and explains
+how to verify the live MP-SPDZ commit.
+
 ## Namesake
 
 > *Ephemeral* (plural ephemerals): Something which lasts for a short period of

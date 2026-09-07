@@ -1,0 +1,61 @@
+# syntax=docker/dockerfile:1
+#
+# Build a portable MP-SPDZ base image for Carbyne Stack Ephemeral.
+#
+# Set MP_SPDZ_VERSION and MP_SPDZ_REF together. MP_SPDZ_REF must be the full
+# commit resolved from the selected upstream release tag.
+
+FROM ubuntu:22.04 AS builder
+
+ARG MP_SPDZ_VERSION=v0.4.3
+ARG MP_SPDZ_REF=26a605368e40fed3a7e9cee78c9a3f4390b85eb5
+ARG MP_SPDZ_ARCH_FLAGS="-mtune=generic -msse4.1 -msse4.2 -maes -mpclmul -mavx -mavx2 -mbmi2 -madx"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    automake build-essential ca-certificates clang cmake git libboost-dev \
+    libboost-filesystem-dev libboost-iostreams-dev libboost-thread-dev \
+    libgmp-dev libsodium-dev libssl-dev libtool m4 python3 python3-gmpy2 \
+    texinfo yasm \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+RUN git clone https://github.com/data61/MP-SPDZ.git mp-spdz \
+    && git -C mp-spdz checkout "${MP_SPDZ_REF}" \
+    && test "$(git -C mp-spdz rev-parse HEAD)" = "${MP_SPDZ_REF}"
+
+WORKDIR /build/mp-spdz
+
+# Do not use -march=native. The resulting binary must be compatible with the
+# CPUs that will run Kind/Kubernetes nodes, not only with the build machine.
+RUN printf '%s\n' \
+    'USE_GF2N_LONG = 0' \
+    'MY_CFLAGS = -DINSECURE -DNO_CLIENT_TLS' \
+    "ARCH = ${MP_SPDZ_ARCH_FLAGS}" \
+    > CONFIG.mine \
+    && make -j"$(nproc)" mascot-party.x Fake-Offline.x \
+    && ln -sf mascot-party.x Player-Online.x \
+    && printf 'version=%s\ncommit=%s\n' "${MP_SPDZ_VERSION}" "${MP_SPDZ_REF}" > MP-SPDZ_VERSION
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LD_LIBRARY_PATH=/mp-spdz:/mp-spdz/local/lib:/usr/local/lib \
+    USER_HOME=/mp-spdz
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates libboost-filesystem1.74.0 libboost-iostreams1.74.0 \
+    libboost-thread1.74.0 libgmp10 libgmpxx4ldbl libsodium23 libssl3 \
+    python3 python3-gmpy2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g 1000 cs \
+    && useradd -m -d /mp-spdz -s /usr/sbin/nologin -g 1000 -u 1000 cs
+
+COPY --from=builder --chown=1000:1000 /build/mp-spdz /mp-spdz
+
+WORKDIR /mp-spdz
+USER 1000:1000
+
+RUN test -x Player-Online.x && test -x Fake-Offline.x && test -f MP-SPDZ_VERSION
