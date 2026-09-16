@@ -1,0 +1,33 @@
+{
+      "programIdentifier": "ephemeral-astra-experiment",
+      "authUserIdField": "email",
+      "ringBits": 64,
+      "retrySleep": "50ms",
+      "networkEstablishTimeout": "60s",
+      "stateTimeout": "60s",
+      "computationTimeout": "600s",
+      "playerID": 0,
+      "playerCount": 2,
+      "frontendURL": "player0.example.org",
+      "tlsEnabled": false,
+      "prepFolder": "Player-Data",
+      "opaConfig": {
+        "endpoint": "http://opa.example.org:8081/",
+        "policyPackage": "carbynestack.def"
+      },
+      "amphoraConfig": {
+        "host": "amphora.example.org:10000",
+        "scheme": "http",
+        "path": "/"
+      },
+      "castorConfig": {
+        "host": "castor.example.org:10100",
+        "scheme": "http",
+        "path": "/"
+      },
+      "discoveryConfig": {
+        "host": "discovery.example.org",
+        "port": "8080",
+        "connectTimeout": "60s"
+      }
+    }
