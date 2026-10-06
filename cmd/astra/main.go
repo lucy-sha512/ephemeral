@@ -150,8 +150,7 @@ func InitTypedConfig(
 	logger *zap.SugaredLogger,
 ) (
 	*astra.ASTRAEngineTypedConfig,
-	astra.OnlineProcessConfig,// pkg/astra/engine.go
-config *ASTRAEngineTypedConfig
+	astra.OnlineProcessConfig,
 	error,
 ) {
 	if config == nil {
@@ -183,12 +182,11 @@ config *ASTRAEngineTypedConfig
 	}
 
 	if config.RuntimePort < 1 || config.RuntimePort > 65535 {
-	return nil, fmt.Errorf(
-		"ASTRA runtime port must be between 1 and 65535; got %d",
-		config.RuntimePort,
-	)
+		return nil, astra.OnlineProcessConfig{}, fmt.Errorf(
+			"ASTRA runtimePort must be between 1 and 65535; got %d",
+			config.RuntimePort,
+		)
 	}
-	
 
 	retrySleep, err := time.ParseDuration(config.RetrySleep)
 	if err != nil || retrySleep <= 0 {
@@ -289,26 +287,26 @@ config *ASTRAEngineTypedConfig
 	}
 
 	return &astra.ASTRAEngineTypedConfig{
-	ProgramIdentifier:       config.ProgramIdentifier,
-	AuthUserIdField:         config.AuthUserIdField,
-	RingBits:                config.RingBits,
-	RetrySleep:              retrySleep,
-	NetworkEstablishTimeout: networkTimeout,
-	StateTimeout:            stateTimeout,
-	ComputationTimeout:      computationTimeout,
-	PlayerID:                config.PlayerID,
-	PlayerCount:             config.PlayerCount,
-	RuntimePort:             config.RuntimePort,
-	FrontendURL:             config.FrontendURL,
-	PrepFolder:              config.PrepFolder,
-	OpaClient:               opaClient,
-	AmphoraClient:           amphoraClient,
-	CastorClient:            castorClient,
-	DiscoveryConfig: types.DiscoveryClientTypedConfig{
-		Host:           config.DiscoveryConfig.Host,
-		Port:           config.DiscoveryConfig.Port,
-		ConnectTimeout: discoveryTimeout,
-	},
-	TlsConfig: tlsConfig,
-}, processConfig, nil
+		ProgramIdentifier:       config.ProgramIdentifier,
+		AuthUserIdField:         config.AuthUserIdField,
+		RingBits:                config.RingBits,
+		RetrySleep:              retrySleep,
+		NetworkEstablishTimeout: networkTimeout,
+		StateTimeout:            stateTimeout,
+		ComputationTimeout:      computationTimeout,
+		PlayerID:                config.PlayerID,
+		PlayerCount:             config.PlayerCount,
+		RuntimePort:             config.RuntimePort,
+		FrontendURL:             config.FrontendURL,
+		PrepFolder:              config.PrepFolder,
+		OpaClient:               opaClient,
+		AmphoraClient:           amphoraClient,
+		CastorClient:            castorClient,
+		DiscoveryConfig: types.DiscoveryClientTypedConfig{
+			Host:           config.DiscoveryConfig.Host,
+			Port:           config.DiscoveryConfig.Port,
+			ConnectTimeout: discoveryTimeout,
+		},
+		TlsConfig: tlsConfig,
+	}, processConfig, nil
 }

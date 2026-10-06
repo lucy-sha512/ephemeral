@@ -22,6 +22,7 @@ type routeObservation struct {
 	routes   []PeerRoute
 	output   string
 }
+
 func TestDiscoveryCoordinatesASTRAPlayers(t *testing.T) {
 	developmentLogger, err := zap.NewDevelopment()
 	if err != nil {
@@ -80,7 +81,6 @@ func TestDiscoveryCoordinatesASTRAPlayers(t *testing.T) {
 	defer cancel()
 
 	gameID := "33a6b2cd-c28f-40c4-a1ed-d87ad3a94dbd"
-	publicResult := "Result: 126"
 	observations := make(chan routeObservation, OnlinePlayerCount)
 
 	for _, playerID := range []int32{Player0, Player1} {
@@ -204,11 +204,12 @@ func TestDiscoveryCoordinatesASTRAPlayers(t *testing.T) {
 func testASTRAConfig(
 	playerID int32,
 	discoveryPort string,
-) *types.ASTRAEngineTypedConfig {
-	return &types.ASTRAEngineTypedConfig{
+) *ASTRAEngineTypedConfig {
+	return &ASTRAEngineTypedConfig{
 		RingBits:           64,
 		PlayerID:           playerID,
 		PlayerCount:        OnlinePlayerCount,
+		RuntimePort:        Player0Port,
 		FrontendURL:        "127.0.0.1",
 		StateTimeout:       5 * time.Second,
 		ComputationTimeout: 5 * time.Second,

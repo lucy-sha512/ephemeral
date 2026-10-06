@@ -10,12 +10,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/carbynestack/ephemeral/pkg/types"
-
 	"go.uber.org/zap"
 )
 
-// CommandExecutor executes an ASTRA runtime command.
+// CommandExecutor launches a runtime command and returns its captured output.
 type CommandExecutor interface {
 	CallCMD(
 		context.Context,
@@ -24,14 +22,14 @@ type CommandExecutor interface {
 	) ([]byte, []byte, error)
 }
 
-// Relay manages ASTRA's local connection relay for Player 1.
+// Relay manages Player 1's local TCP listener and forwarding connections.
 type Relay interface {
 	Run(context.Context, []PeerRoute) error
 	Stop()
 }
 
-// OnlineProcessConfig identifies the native MP-SPDZ ASTRA runtime and its
-// prepared working directory.
+// OnlineProcessConfig identifies the native executable, prepared workspace,
+// compiled program, and input-file prefix.
 type OnlineProcessConfig struct {
 	BinaryPath       string `json:"binaryPath"`
 	WorkingDirectory string `json:"workingDirectory"`
@@ -39,7 +37,7 @@ type OnlineProcessConfig struct {
 	InputFilePrefix  string `json:"inputFilePrefix"`
 }
 
-// Engine launches the MP-SPDZ ASTRA online process.
+// Engine manages one local MP-SPDZ ASTRA online process.
 type Engine struct {
 	logger        *zap.SugaredLogger
 	executor      CommandExecutor
@@ -48,7 +46,8 @@ type Engine struct {
 	relay         Relay
 }
 
-// NewEngine constructs an ASTRA online engine.
+// NewEngine validates the local player and process configuration.
+// It does not start the relay or native process.
 func NewEngine(
 	logger *zap.SugaredLogger,
 	executor CommandExecutor,
@@ -83,6 +82,13 @@ func NewEngine(
 		)
 	}
 
+	if config.RuntimePort < 1 || config.RuntimePort > 65535 {
+		return nil, fmt.Errorf(
+			"ASTRA runtime port must be between 1 and 65535; got %d",
+			config.RuntimePort,
+		)
+	}
+
 	if strings.TrimSpace(processConfig.BinaryPath) == "" {
 		return nil, errors.New("ASTRA binary path is empty")
 	}
@@ -108,11 +114,13 @@ func NewEngine(
 	}, nil
 }
 
-// Activate starts the local ASTRA online process.
+// Activate executes the compiled ASTRA program in the prepared workspace.
 //
-// Player 0 listens directly on Player0Port. Player 1 first starts its local
-// relay on Player0Port, then connects to that local relay through
-// astra-party.x.
+// Player 0 listens directly on its configured RuntimePort.
+// Player 1 starts a relay on its RuntimePort and connects the native process
+// to that relay. Discovery supplies the relay's remote Player 0 endpoint.
+//
+// Activate returns captured stdout after the native process exits successfully.
 func (e *Engine) Activate(ctx *ASTRACtxConfig) ([]byte, error) {
 	if ctx == nil {
 		return nil, errors.New("ASTRA execution context is nil")
@@ -123,11 +131,15 @@ func (e *Engine) Activate(ctx *ASTRACtxConfig) ([]byte, error) {
 	}
 
 	if ctx.Context == nil {
-		return nil, errors.New("ASTRA execution context has no Go context")
+		return nil, errors.New(
+			"ASTRA execution context has no Go context",
+		)
 	}
 
 	if ctx.Config == nil {
-		return nil, errors.New("ASTRA execution context has no typed configuration")
+		return nil, errors.New(
+			"ASTRA execution context has no typed configuration",
+		)
 	}
 
 	if ctx.Config.PlayerID != e.config.PlayerID {
@@ -135,6 +147,21 @@ func (e *Engine) Activate(ctx *ASTRACtxConfig) ([]byte, error) {
 			"ASTRA context player ID %d does not match engine player ID %d",
 			ctx.Config.PlayerID,
 			e.config.PlayerID,
+		)
+	}
+
+	if ctx.Config.RuntimePort != e.config.RuntimePort {
+		return nil, fmt.Errorf(
+			"ASTRA context runtime port %d does not match engine runtime port %d",
+			ctx.Config.RuntimePort,
+			e.config.RuntimePort,
+		)
+	}
+
+	if err := ctx.Context.Err(); err != nil {
+		return nil, fmt.Errorf(
+			"ASTRA activation context is already closed: %w",
+			err,
 		)
 	}
 
@@ -152,14 +179,31 @@ func (e *Engine) Activate(ctx *ASTRACtxConfig) ([]byte, error) {
 			)
 		}
 
+		if ctx.Routes[0].LocalPort != e.config.RuntimePort {
+			return nil, fmt.Errorf(
+				"ASTRA relay local port %d does not match runtime port %d",
+				ctx.Routes[0].LocalPort,
+				e.config.RuntimePort,
+			)
+		}
+
+		if err := validateRoutes(ctx.Routes); err != nil {
+			return nil, fmt.Errorf("invalid ASTRA relay route: %w", err)
+		}
+
 		if e.relay == nil {
 			return nil, errors.New("ASTRA Player 1 relay is nil")
 		}
 
-		if err := e.relay.Run(ctx.Context, ctx.Routes); err != nil {
-			return nil, fmt.Errorf("start ASTRA Player 1 relay: %w", err)
-		}
+		// Ensure cleanup also runs if relay startup partially succeeds.
 		defer e.relay.Stop()
+
+		if err := e.relay.Run(ctx.Context, ctx.Routes); err != nil {
+			return nil, fmt.Errorf(
+				"start ASTRA Player 1 relay: %w",
+				err,
+			)
+		}
 	}
 
 	command := e.onlineCommand()
@@ -168,6 +212,7 @@ func (e *Engine) Activate(ctx *ASTRACtxConfig) ([]byte, error) {
 		"Starting MP-SPDZ ASTRA online process",
 		"playerID", e.config.PlayerID,
 		"gameID", ctx.Activation.GameID,
+		"runtimePort", e.config.RuntimePort,
 		"command", command,
 		"workingDirectory", e.processConfig.WorkingDirectory,
 	)
@@ -186,16 +231,40 @@ func (e *Engine) Activate(ctx *ASTRACtxConfig) ([]byte, error) {
 		)
 	}
 
+	e.logger.Infow(
+		"MP-SPDZ ASTRA online process completed",
+		"playerID", e.config.PlayerID,
+		"gameID", ctx.Activation.GameID,
+		"stdout", string(stdout),
+		"stderr", string(stderr),
+	)
+
 	return stdout, nil
 }
 
+// onlineCommand builds the shell command consumed by CommandExecutor.
 func (e *Engine) onlineCommand() string {
 	return fmt.Sprintf(
 		"%s %d %s -IF %s -pn %d -h localhost",
-		e.processConfig.BinaryPath,
+		quoteASTRAShellArgument(e.processConfig.BinaryPath),
 		e.config.PlayerID,
-		e.processConfig.ProgramName,
-		e.processConfig.InputFilePrefix,
+		quoteASTRAShellArgument(e.processConfig.ProgramName),
+		quoteASTRAShellArgument(e.processConfig.InputFilePrefix),
 		e.config.RuntimePort,
 	)
+}
+
+// quoteASTRAShellArgument preserves paths and names as literal shell arguments.
+// Simple arguments retain their existing representation for command tests.
+func quoteASTRAShellArgument(value string) string {
+	if value != "" && strings.IndexFunc(value, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			strings.ContainsRune("_./-", r))
+	}) == -1 {
+		return value
+	}
+
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }

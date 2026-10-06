@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -196,7 +198,7 @@ func (p *Proxy) forward(
 	<-copyDone
 }
 
-func (p *Proxy) dial(
+func (p *Proxy) dialOnce(
 	ctx context.Context,
 	route PeerRoute,
 ) (net.Conn, error) {
@@ -272,4 +274,25 @@ func validateRoutes(routes []PeerRoute) error {
 	}
 
 	return nil
+}
+
+// dial retries only refused connections, retaining the actual successful
+// peer connection instead of opening a disposable readiness probe.
+func (p *Proxy) dial(ctx context.Context, route PeerRoute) (net.Conn, error) {
+	for {
+		connection, err := p.dialOnce(ctx, route)
+		if err == nil {
+			return connection, nil
+		}
+		if !errors.Is(err, syscall.ECONNREFUSED) {
+			return nil, err
+		}
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }

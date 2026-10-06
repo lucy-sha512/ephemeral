@@ -82,6 +82,9 @@ func NewPlayer(
 		fsm.AfterEnter(types.Registering).Do(
 			callbacker.sendPlayerReady(),
 		),
+		fsm.AfterEnter(types.WaitTCPCheck).Do(
+			callbacker.acceptParticipantEndpoints(),
+		),
 		fsm.AfterEnter(types.Playing).Do(
 			callbacker.playing(params.TopicName, engine),
 		),
@@ -104,6 +107,10 @@ func NewPlayer(
 
 		fsm.WhenIn(types.Registering).
 			GotEvent(types.PlayersReady).
+			GoTo(types.WaitTCPCheck),
+
+		fsm.WhenIn(types.WaitTCPCheck).
+			GotEvent(types.TCPCheckSuccessAll).
 			GoTo(types.Playing).
 			WithTimeout(computationTimeout),
 
@@ -111,9 +118,17 @@ func NewPlayer(
 			GotEvent(types.PlayerFinishedWithSuccess).
 			GoTo(types.PlayerFinishedWithSuccess),
 
+		fsm.WhenIn(types.WaitTCPCheck).
+			GotEvent(types.PlayingError).
+			GoTo(types.PlayerFinishedWithError),
+
 		fsm.WhenIn(types.Playing).
 			GotEvent(types.PlayingError).
 			GoTo(types.PlayerFinishedWithError),
+
+		fsm.WhenIn(types.PlayerFinishedWithSuccess).
+			GotEvent(types.GameSuccess).
+			GoTo(types.PlayerDone),
 
 		fsm.WhenInAnyState().
 			GotEvent(types.GameError).
@@ -309,7 +324,7 @@ func (c *Callbacker) finishWithSuccess(
 			types.DiscoveryTopic,
 			event,
 		)
-		c.sendEvent(types.PlayerDone, topic, event)
+		// Wait for Discovery's collective GameSuccess before stopping.
 		return nil
 	}
 }
@@ -347,4 +362,27 @@ func (c *Callbacker) sendEvent(
 		"event", event,
 		"topic", topic,
 	)
+}
+
+// acceptParticipantEndpoints acknowledges validated coordination metadata.
+// The legacy TCPCheckSuccess event is a barrier acknowledgment here;
+// no synthetic connection is opened to the native ASTRA socket.
+func (c *Callbacker) acceptParticipantEndpoints() func(interface{}) error {
+	return func(event interface{}) error {
+		ev := event.(*fsm.Event)
+		if ev.Meta == nil || ev.Meta.TransportMsg == nil {
+			c.sendEvent(types.TCPCheckFailure, types.DiscoveryTopic, event)
+			c.sendEvent(types.PlayingError, c.params.TopicName, event)
+			return nil
+		}
+		if _, err := ResolveRoutes(c.params.PlayerID, Player0Port, ev.Meta.TransportMsg); err != nil {
+			c.logger.Errorw("Invalid ASTRA participant endpoints", "error", err)
+			c.sendEvent(types.TCPCheckFailure, types.DiscoveryTopic, event)
+			c.sendEvent(types.PlayingError, c.params.TopicName, event)
+			return nil
+		}
+		c.logger.Infow("Acknowledging ASTRA Discovery barrier without a TCP probe", "gameID", c.params.GameID)
+		c.sendEvent(types.TCPCheckSuccess, types.DiscoveryTopic, event)
+		return nil
+	}
 }

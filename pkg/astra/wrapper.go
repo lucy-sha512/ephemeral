@@ -1,7 +1,3 @@
-// Copyright (c) 2026
-//
-// SPDX-License-Identifier: Apache-2.0
-
 package astra
 
 import (
@@ -10,15 +6,11 @@ import (
 	"strings"
 
 	pb "github.com/carbynestack/ephemeral/pkg/discovery/transport/proto"
-
 	"go.uber.org/zap"
 )
 
-// ActivationFunc starts one local ASTRA execution after Discovery has supplied
-// the complete online participant set.
 type ActivationFunc func(*ASTRACtxConfig) ([]byte, error)
 
-// Wrapper bridges a Discovery Playing event to the local ASTRA engine.
 type Wrapper struct {
 	ctx      *ASTRACtxConfig
 	activate ActivationFunc
@@ -27,7 +19,6 @@ type Wrapper struct {
 	logger   *zap.SugaredLogger
 }
 
-// NewWrapper constructs an ASTRA Discovery-to-engine bridge.
 func NewWrapper(
 	ctx *ASTRACtxConfig,
 	respCh chan []byte,
@@ -35,6 +26,9 @@ func NewWrapper(
 	logger *zap.SugaredLogger,
 	activate ActivationFunc,
 ) *Wrapper {
+	if logger == nil {
+		logger = zap.NewNop().Sugar()
+	}
 
 	return &Wrapper{
 		ctx:      ctx,
@@ -45,15 +39,15 @@ func NewWrapper(
 	}
 }
 
-// Execute handles the Discovery Playing event. Player 0 receives no relay
-// route because it owns the ASTRA listener. Player 1 receives one local relay
-// route to Player 0's Discovery endpoint.
 func (w *Wrapper) Execute(event *pb.Event) error {
 	if w.ctx == nil {
 		return errors.New("ASTRA execution context is nil")
 	}
 	if w.ctx.Config == nil {
 		return errors.New("ASTRA typed configuration is nil")
+	}
+	if w.ctx.Activation == nil {
+		return errors.New("ASTRA activation is nil")
 	}
 	if w.activate == nil {
 		return errors.New("ASTRA activation function is nil")
@@ -63,10 +57,13 @@ func (w *Wrapper) Execute(event *pb.Event) error {
 		w.ctx.Config.PlayerID,
 		w.ctx.Config.RuntimePort,
 		event,
-	)	
+	)
+	if err != nil {
+		return err
+	}
 
 	w.ctx.Routes = routes
-	w.ctx.ErrCh = w.errCh
+	// Keep the context's existing Discovery error channel.
 
 	w.logger.Infow(
 		"Resolved ASTRA online routes",
@@ -77,7 +74,10 @@ func (w *Wrapper) Execute(event *pb.Event) error {
 
 	response, err := w.activate(w.ctx)
 	if err != nil {
-		w.errCh <- err
+		select {
+		case w.errCh <- err:
+		default:
+		}
 		return err
 	}
 
@@ -85,7 +85,6 @@ func (w *Wrapper) Execute(event *pb.Event) error {
 	return nil
 }
 
-// ResolveRoutes converts a Discovery participant list into local ASTRA routes.
 func ResolveRoutes(
 	localPlayerID int32,
 	localRuntimePort int32,
@@ -95,19 +94,17 @@ func ResolveRoutes(
 		return nil, errors.New("ASTRA Discovery event is nil")
 	}
 
-	if localRuntimePort < 1 || localRuntimePort > 65535 {
-	return nil, fmt.Errorf(
-		"ASTRA local runtime port must be between 1 and 65535; got %d",
-		localRuntimePort,
-	)
-	}
-
-	LocalPort: localRuntimePort,
-
 	if localPlayerID != Player0 && localPlayerID != Player1 {
 		return nil, fmt.Errorf(
 			"ASTRA local player ID must be 0 or 1; got %d",
 			localPlayerID,
+		)
+	}
+
+	if localRuntimePort < 1 || localRuntimePort > 65535 {
+		return nil, fmt.Errorf(
+			"ASTRA local runtime port must be between 1 and 65535; got %d",
+			localRuntimePort,
 		)
 	}
 
@@ -123,7 +120,9 @@ func ResolveRoutes(
 
 	for _, player := range event.Players {
 		if player == nil {
-			return nil, errors.New("ASTRA Discovery event contains a nil player")
+			return nil, errors.New(
+				"ASTRA Discovery event contains a nil player",
+			)
 		}
 
 		playerID := player.Id - DiscoveryPlayerIDOffset
@@ -178,7 +177,7 @@ func ResolveRoutes(
 			RemotePlayerID: Player0,
 			RemoteHost:     player0.Ip,
 			RemotePort:     player0.Port,
-			LocalPort:      Player0Port,
+			LocalPort:      localRuntimePort,
 		},
 	}, nil
 }

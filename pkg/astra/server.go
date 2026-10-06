@@ -16,8 +16,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/carbynestack/ephemeral/pkg/types"
-
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -30,7 +28,7 @@ const astraContextKey requestContextKey = "astra-context"
 type Server struct {
 	authUserIDField string
 	engine          *Engine
-	config          ASTRAEngineTypedConfig
+	config          *ASTRAEngineTypedConfig
 	logger          *zap.SugaredLogger
 }
 
@@ -38,7 +36,7 @@ type Server struct {
 func NewServer(
 	authUserIDField string,
 	engine *Engine,
-	config ASTRAEngineTypedConfig,
+	config *ASTRAEngineTypedConfig,
 	logger *zap.SugaredLogger,
 ) (*Server, error) {
 	if engine == nil {

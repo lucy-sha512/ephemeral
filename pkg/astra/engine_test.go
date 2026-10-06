@@ -4,8 +4,6 @@ import (
 	"context"
 	"reflect"
 	"testing"
-
-	"github.com/carbynestack/ephemeral/pkg/types"
 )
 
 type recordingExecutor struct {
@@ -54,9 +52,10 @@ func TestEngineActivatesPlayerOneThroughRelay(t *testing.T) {
 	}
 	relay := &recordingRelay{}
 
-	config := &types.ASTRAEngineTypedConfig{
+	config := &ASTRAEngineTypedConfig{
 		PlayerID:    Player1,
 		PlayerCount: OnlinePlayerCount,
+		RuntimePort: 16004,
 	}
 
 	engine, err := NewEngine(
@@ -80,7 +79,7 @@ func TestEngineActivatesPlayerOneThroughRelay(t *testing.T) {
 			RemotePlayerID: Player0,
 			RemoteHost:     "player0.example.org",
 			RemotePort:     30000,
-			LocalPort:      Player0Port,
+			LocalPort:      16004,
 		},
 	}
 
@@ -114,7 +113,7 @@ func TestEngineActivatesPlayerOneThroughRelay(t *testing.T) {
 
 	wantCommand := []string{
 		"/opt/mp-spdz/astra-party.x 1 astra_mul " +
-			"-IF Player-Data/astra-mul-input -pn 5000 -h localhost",
+			"-IF Player-Data/astra-mul-input -pn 16004 -h localhost",
 	}
 
 	if !reflect.DeepEqual(executor.command, wantCommand) {
@@ -139,9 +138,10 @@ func TestEngineActivatesPlayerZeroWithoutRelay(t *testing.T) {
 		stdout: []byte("Result: 126"),
 	}
 
-	config := &types.ASTRAEngineTypedConfig{
+	config := &ASTRAEngineTypedConfig{
 		PlayerID:    Player0,
 		PlayerCount: OnlinePlayerCount,
+		RuntimePort: Player0Port,
 	}
 
 	engine, err := NewEngine(

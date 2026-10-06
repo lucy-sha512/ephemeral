@@ -10,6 +10,7 @@
 
   "playerID": 0,
   "playerCount": 2,
+  "runtimePort": 5000,
   "frontendURL": "player0.example.org",
   "prepFolder": "Player-Data",
   "tlsEnabled": false,

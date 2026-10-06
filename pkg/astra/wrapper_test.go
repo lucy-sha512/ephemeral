@@ -23,7 +23,7 @@ func TestResolveRoutes(t *testing.T) {
 	}
 
 	t.Run("player zero owns the listener and needs no relay", func(t *testing.T) {
-		routes, err := ResolveRoutes(Player0, event)
+		routes, err := ResolveRoutes(Player0, Player0Port, event)
 		if err != nil {
 			t.Fatalf("ResolveRoutes() returned error: %v", err)
 		}
@@ -33,7 +33,7 @@ func TestResolveRoutes(t *testing.T) {
 	})
 
 	t.Run("player one receives a local relay to player zero", func(t *testing.T) {
-		routes, err := ResolveRoutes(Player1, event)
+		routes, err := ResolveRoutes(Player1, 16004, event)
 		if err != nil {
 			t.Fatalf("ResolveRoutes() returned error: %v", err)
 		}
@@ -56,11 +56,10 @@ func TestResolveRoutes(t *testing.T) {
 		if route.RemotePort != 30000 {
 			t.Fatalf("remote port = %d; want 30000", route.RemotePort)
 		}
-		if route.LocalPort != Player0Port {
+		if route.LocalPort != 16004 {
 			t.Fatalf(
-				"local port = %d; want %d",
+				"local port = %d; want 16004",
 				route.LocalPort,
-				Player0Port,
 			)
 		}
 	})
@@ -68,6 +67,7 @@ func TestResolveRoutes(t *testing.T) {
 	t.Run("rejects a missing participant", func(t *testing.T) {
 		_, err := ResolveRoutes(
 			Player1,
+			Player0Port,
 			&pb.Event{
 				Players: []*pb.Player{
 					{
@@ -78,6 +78,7 @@ func TestResolveRoutes(t *testing.T) {
 				},
 			},
 		)
+
 		if err == nil {
 			t.Fatal("expected an error for a missing Player 1")
 		}

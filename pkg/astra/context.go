@@ -10,7 +10,6 @@ import (
 	"context"
 
 	pb "github.com/carbynestack/ephemeral/pkg/discovery/transport/proto"
-	
 )
 
 const (
@@ -82,7 +81,3 @@ type ASTRACtxConfig struct {
 type ASTRAMPCEngine interface {
 	Execute(*pb.Event) error
 }
-
-
-
-
