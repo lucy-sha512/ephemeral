@@ -1,0 +1,40 @@
+{
+  "mode": "local-online-fixture",
+  "mpSpdz": {
+    "binaryPath": "/home/cdpguser17/Desktop/carbyne-workspace/MP-SPDZ/astra-party.x",
+    "programName": "astra_mul",
+    "programsSourceDirectory": "/home/cdpguser17/Desktop/carbyne-workspace/MP-SPDZ/Programs",
+    "playerDataSourceDirectory": "/home/cdpguser17/Desktop/carbyne-workspace/MP-SPDZ/Player-Data",
+    "inputFilePrefix": "Player-Data/astra-mul-input",
+    "ringBits": 64,
+    "onlinePlayerCount": 2,
+    "preprocessingPlayerCount": 3,
+    "threadCount": 1
+  },
+  "network": {
+    "host": "127.0.0.1",
+    "port": 16003
+  },
+  "workspace": {
+    "root": "/tmp/ephemeral-astra-local",
+    "recreate": true
+  },
+  "players": [
+    {
+      "onlinePlayerID": 0,
+      "workspaceName": "player-0",
+      "requiredPreprocessingFiles": [
+        "3-astra-R-64/Protocol-P1-T0"
+      ]
+    },
+    {
+      "onlinePlayerID": 1,
+      "workspaceName": "player-1",
+      "requiredPreprocessingFiles": [
+        "3-astra-R-64/Protocol-P2-T0"
+      ]
+    }
+  ],
+  "executionTimeout": "30s",
+  "expectedOutput": "Result: 126"
+}
